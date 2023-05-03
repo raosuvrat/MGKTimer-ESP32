@@ -1,0 +1,163 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <link rel="manifest" href="site.webmanifest">
+  <link href="lib/bootstrap.min.css" rel="stylesheet">
+  <title>MGK Lap Timer</title>
+  <script src="lib/bootstrap.bundle.min.js" type="text/javascript"></script>
+  <script src="lib/zepto.min.js" type="text/javascript"></script>
+  <script type="text/javascript">
+    let gateway = `ws://${window.location.hostname}/ws`;
+    let websocket;
+    let history = localStorage.getItem("history") || {};
+    let start_time = 0, dispinterval;
+
+
+
+    function format_us(t_start, t) {
+      let dur = t - t_start, tthous = dur / 100, cents = tthous / 100, secs = cents / 100,
+        mins = secs / 60, hrs = mins / 60, days = hrs / 24;
+      return (
+        days > 1 ? String(Math.floor(days)) + ":" : "" +
+          hrs > 1 ? String(Math.floor(hrs % 24)).padStart(2, '0') + ":" : "" +
+          String(Math.floor(mins % 60)).padStart(2, '0') + ":" +
+          String(Math.floor(secs % 60)).padStart(2, '0') + ":" +
+        String(Math.floor(cents % 100)).padStart(2, '0') //+ ":" +
+        // String(Math.floor(tthous % 100)).padStart(2, '0')
+      );
+    }
+
+    function init_websocket() {
+      websocket = new WebSocket(gateway);
+      websocket.onopen = (e) => {
+        $(".alert-success").html("Websocket connection opened!").removeClass("d-none");
+        $(".alert-danger").addClass("d-none");
+        $(".dropdown button").removeClass("disabled");
+        setTimeout(() => {
+          $(".alert-success").addClass("d-none");
+        }, 2000);
+      };
+      websocket.onclose = (e) => {
+        $(".alert-danger").html("Websocket connection closed").removeClass("d-none");
+        $(".dropdown button").addClass("disabled");
+        setTimeout(init_websocket, 1000);
+      };
+      websocket.onerror = (e) => {
+        $(".alert-danger").html("Websocket error").removeClass("d-none");
+        websocket.close();
+      };
+      websocket.onmessage = (e) => {
+        let doc = JSON.parse(e.data);
+        $("#data").html(`<pre>${JSON.stringify(doc, false, 4)}</pre>`);
+        if (doc["start"] != 0 && doc["finish"] == 0 && dispinterval === undefined) {
+          start_time = (Date.now() * 1000);
+          dispinterval = setInterval(() => {
+            $("#display").html(format_us(start_time, Date.now() * 1000));
+          }, 100);
+        } else if (doc["finish"] != 0) {
+          if (dispinterval !== undefined) {
+            clearInterval(dispinterval);
+            dispinterval = undefined;
+          }
+          $("#display").html(format_us(doc["start"], doc["finish"]));
+          $("#display-micros").html(doc["finish"] - doc["start"]);
+        } else if (doc["start"] == 0) {
+          if (dispinterval !== undefined) {
+            clearInterval(dispinterval);
+            dispinterval = undefined;
+          }
+          $("#display").html("00:00:00");
+        }
+      };
+    }
+    $(document).ready(() => {
+      init_websocket();
+      $("#mode-dropdown ul li a").on('click', (e) => {
+        let selected_mode = e.currentTarget.getAttribute("data-value");
+        $("#mode-dropdown ul li a.active").removeClass("active");
+        $(`#mode-dropdown ul li a[data-value='${selected_mode}']`).addClass("active");
+        websocket.send(JSON.stringify({ "mode": selected_mode }));
+      });
+      $("#crossings-dropdown ul li a").on('click', (e) => {
+        let selected_crossings = e.currentTarget.getAttribute("data-value");
+        $("#crossings-dropdown ul li a.active").removeClass("active");
+        $(`#crossings-dropdown ul li a[data-value='${selected_crossings}']`).addClass("active");
+        websocket.send(JSON.stringify({ "crossings": selected_crossings }));
+      });
+    });
+  </script>
+</head>
+
+<body data-bs-theme="dark">
+  <div class="alert alert-success alert-dismissible fade show d-none"></div>
+  <div class="alert alert-info alert-dismissible fade show d-none"></div>
+  <div class="alert alert-danger alert-dismissible fade show">Not Connected</div>
+  <nav class="navbar navbar-expand-sm">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="javascript:void(0)">MGK Lap Timer</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mynavbar">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="mynavbar">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item">
+            <div class="dropdown mx-1" id="crossings-dropdown">
+              <button class="btn btn-secondary dropdown-toggle show disabled" type="button" data-bs-toggle="dropdown"
+                aria-expanded="true">
+                Crossings
+              </button>
+              <ul class="dropdown-menu" data-bs-popper="static">
+                <li><a class="dropdown-item" href="#" data-value="1">1</a></li>
+                <li><a class="dropdown-item" href="#" data-value="2">2</a></li>
+                <li><a class="dropdown-item" href="#" data-value="3">3</a></li>
+                <li><a class="dropdown-item active" href="#" data-value="4">4</a></li>
+              </ul>
+            </div>
+          </li>
+          <li class="nav-item">
+            <div class="dropdown mx-1" id="mode-dropdown">
+              <button class="btn btn-secondary dropdown-toggle show disabled" type="button" data-bs-toggle="dropdown"
+                aria-expanded="true">
+                Detection Mode
+              </button>
+              <ul class="dropdown-menu" data-bs-popper="static">
+                <li><a class="dropdown-item" href="#" data-value="LASER_PHOTOTRANS_DIG">Laser + Phototransistor
+                    Digital</a></li>
+                <li><a class="dropdown-item active" href="#" data-value="LASER_PHOTOTRANS_ADC">Laser + Phototransistor
+                    ADC</a></li>
+                <li><a class="dropdown-item" href="#" data-value="LASER_IR_RECV">IR-Modulated Laser + IR Receiver</a>
+                </li>
+                <li><a class="dropdown-item" href="#" data-value="IR_LED_IR_RECV">IR-Modulated LED + IR Receiver</a>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="javascript:void(0)">About</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+  <div class="container-fluid p-3">
+    <div class="row">
+      <div class="col text-wrap font-monospace" style="font-size: 1vw;">
+        <p id="data">
+        </p>
+      </div>
+      <div class="col">
+        <h1 id="display" class="text-danger text-center" style="font-size:15vw">00:00</h1>
+        <h1 id="display-micros"></h1>
+      </div>
+      <div class="col"></div>
+    </div>
+  </div>
+</body>
+
+</html>
