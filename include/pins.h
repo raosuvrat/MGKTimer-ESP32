@@ -4,9 +4,9 @@
 #include <driver/adc.h>
 
 #define IR_RECV_PIN 19
-#define IR_LED_PIN 25
 #define STATUS_LED_PIN 21
 #define LASER_PIN 22
+#define TOUCH_STRIP_PIN 27
 #define PHOTOTRANS_PIN 34
 #define PHOTOTRANS_100000_OHM_LOAD_PIN 26
 #define PHOTOTRANS_ADC1_CHANNEL ADC1_CHANNEL_6

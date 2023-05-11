@@ -5,6 +5,8 @@
 #include <AsyncTCP.h>
 #include <AsyncWebSocket.h>
 #include <DNSServer.h>
+// #include <WebServer.h>
+// #include <WebSocketsServer.h>
 #include <ESPAsyncWebServer.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
@@ -20,7 +22,7 @@
 #define WIFI_STA_PSK "PASS"
 #endif
 
-#define WIFI_SOFT_AP 0
+#define WIFI_SOFT_AP 1
 #define WIFI_SOFT_AP_SSID "MGK Lap Timer"
 #define MDNS_NAME "mgktimer"
 #define HTTP_PORT 80
@@ -31,7 +33,6 @@ void init_fs();
 void init_wifi(DNSServer *dns_server);
 void init_webserver(AsyncWebServer *server, AsyncWebSocket *socket,
                     void (*cb)(StaticJsonDocument<256> doc));
-bool ws_connected();
 void ws_event_handler(AsyncWebSocket *server, AsyncWebSocketClient *client,
                       AwsEventType type, void *arg, uint8_t *data, size_t len);
 

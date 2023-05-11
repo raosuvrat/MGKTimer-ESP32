@@ -9,11 +9,12 @@ static const std::list<std::tuple<const char *, const char *, const char *>>
     assets = {
         {"/", "/index.html", "text/html"},
         {"/index.html", "/index.html", "text/html"},
-        {"/lib/bootstrap.min.js", "/lib/bootstrap.min.jsgz", "text/css"},
         {"/lib/bootstrap.min.css", "/lib/bootstrap.min.cssgz", "text/css"},
+        {"/lib/pure-min.css", "/lib/pure-min.cssgz", "text/css"},
+        {"/lib/grids-responsive-min.css", "/lib/grids-responsive-min.cssgz",
+         "text/css"},
         {"/lib/bootstrap.bundle.min.js", "/lib/bootstrap.bundle.min.jsgz",
          "text/javascript"},
-        {"/lib/jquery.min.js", "/lib/jquery.min.jsgz", "text/javascript"},
         {"/lib/zepto.min.js", "/lib/zepto.min.jsgz", "text/javascript"},
         {"/favicon.ico", "/favicon.ico", "image/x-icon"},
         {"/favicon-16x16.png", "/favicon-32x32.pnggz", "image/png"},
@@ -25,8 +26,8 @@ static const std::list<std::tuple<const char *, const char *, const char *>>
 };
 
 static void (*ws_data_callback)(StaticJsonDocument<256> doc) = NULL;
-static bool _ws_connected = false;
 static StaticJsonDocument<256> rxdoc;
+static char ws_data_buf[256];
 
 void init_fs() {
   LOGF("Initializing LittleFS\n");
@@ -90,37 +91,33 @@ void ws_event_handler(AsyncWebSocket *server, AsyncWebSocketClient *client,
     case WS_EVT_CONNECT:
       LOGF("WebSocket client %s:%u connected from %s\n", server->url(),
            client->id(), client->remoteIP().toString().c_str());
-      client->ping();
-      _ws_connected = true;
       break;
     case WS_EVT_DISCONNECT:
       LOGF("WebSocket client %s:%u disconnected\n", server->url(),
            client->id());
-      _ws_connected = false;
       break;
     case WS_EVT_DATA: {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
-      String text = "";
+      if (len > 255) len = 255;
+      for (size_t i = 0; i < len; ++i) ws_data_buf[i] = (char)data[i];
+      ws_data_buf[len] = '\0';
 
-      for (size_t i = 0; i < len; ++i) text += (char)data[i];
-
-      if (text == "__ping__") {
+      if (!strcmp(ws_data_buf, "__ping__")) {
         LOGF("Websocket client %s:%u ping\n", server->url(), client->id());
       } else {
         LOGF("Websocket client %s:%u data: %s\n", server->url(), client->id(),
-             text.c_str());
-        deserializeJson(rxdoc, text);
+             ws_data_buf);
+        deserializeJson(rxdoc, ws_data_buf);
         ws_data_callback(rxdoc);
       }
       break;
     }
     case WS_EVT_ERROR:
-      LOGF("WebSocket error %s:%u %s\n", server->url(), client->id(),
-           len ? (char *)data : "");
+      LOGF("WebSocket error %s:%u\n", server->url(), client->id());
+      // LOGF("WebSocket error %s:%u %s2\n", server->url(), client->id(),
+      //      len ? (char *)data : "");
       break;
-    case WS_EVT_PONG:
-      break;
+    // case WS_EVT_PONG:
+      // break;
   }
 }
-
-bool ws_connected() { return _ws_connected; }

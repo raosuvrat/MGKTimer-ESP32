@@ -54,7 +54,13 @@
       };
       websocket.onmessage = (e) => {
         let doc = JSON.parse(e.data);
-        $("#data").html(`<pre>${JSON.stringify(doc, false, 4)}</pre>`);
+        $("#data").html(`<pre>${JSON.stringify(doc, false, 1).replace(/[\{\}]/g, '')}</pre>`);
+        $("#mode-dropdown ul li a.active").removeClass("active");
+        $(`#mode-dropdown ul li a[data-value='${doc["mode"]}']`).addClass("active");
+        $("#crossings-dropdown ul li a.active").removeClass("active");
+        $(`#crossings-dropdown ul li a[data-value='${doc["crossings"]}']`).addClass("active");
+        $("#intensity-slider").val(doc["intensity"]);
+
         if (doc["start"] != 0 && doc["finish"] == 0 && dispinterval === undefined) {
           start_time = (Date.now() * 1000);
           dispinterval = setInterval(() => {
@@ -72,7 +78,7 @@
             clearInterval(dispinterval);
             dispinterval = undefined;
           }
-          $("#display").html("00:00:00");
+          // $("#display").html("00:00:00");
         }
       };
     }
@@ -90,6 +96,10 @@
         $(`#crossings-dropdown ul li a[data-value='${selected_crossings}']`).addClass("active");
         websocket.send(JSON.stringify({ "crossings": selected_crossings }));
       });
+      $('#intensity-slider').on('change', (e) => {
+        let selected_intensity = e.target.value;
+        websocket.send(JSON.stringify({ "intensity": selected_intensity }));
+      });
     });
   </script>
 </head>
@@ -97,49 +107,48 @@
 <body data-bs-theme="dark">
   <div class="alert alert-success alert-dismissible fade show d-none"></div>
   <div class="alert alert-info alert-dismissible fade show d-none"></div>
-  <div class="alert alert-danger alert-dismissible fade show">Not Connected</div>
+  <div class="alert alert-danger alert-dismissible show fade">Not Connected</div>
   <nav class="navbar navbar-expand-sm">
     <div class="container-fluid">
-      <a class="navbar-brand" href="javascript:void(0)">MGK Lap Timer</a>
+      <a class="navbar-brand" href="/">MGK Lap Timer</a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mynavbar">
         <span class="navbar-toggler-icon"></span>
       </button>
       <div class="collapse navbar-collapse" id="mynavbar">
-        <ul class="navbar-nav ms-auto">
+        <ul class="navbar-nav ms-auto disabled">
+          <li class="nav-item mx-1">
+            <label class="form-label pb-0 mb-0 text-center" for="intensity-slider">Display Brightness</label>
+            <input type="range" id="intensity-slider" class="form-range pt-0 mt-0" min="0" max="15">
+          </li>
           <li class="nav-item">
-            <div class="dropdown mx-1" id="crossings-dropdown">
-              <button class="btn btn-secondary dropdown-toggle show disabled" type="button" data-bs-toggle="dropdown"
-                aria-expanded="true">
-                Crossings
+            <div class="dropdown mx-1 mt-1" id="crossings-dropdown">
+              <button class="btn btn-secondary dropdown-toggle show" type="button" data-bs-toggle="dropdown"
+                aria-expanded disabled disabled="true">
+                Wheel Crossings
               </button>
               <ul class="dropdown-menu" data-bs-popper="static">
-                <li><a class="dropdown-item" href="#" data-value="1">1</a></li>
-                <li><a class="dropdown-item" href="#" data-value="2">2</a></li>
-                <li><a class="dropdown-item" href="#" data-value="3">3</a></li>
-                <li><a class="dropdown-item active" href="#" data-value="4">4</a></li>
+                <li><a class="dropdown-item" href="#" data-value="1">1 | Duration of a single interruption</a></li>
+                <li><a class="dropdown-item" href="#" data-value="2">2 | Duration between two interruptions</a></li>
+                <li><a class="dropdown-item" href="#" data-value="3">3 | Front wheel starts; front wheel finishes</a>
+                </li>
+                <li><a class="dropdown-item" href="#" data-value="4">4 | Front wheel starts; rear wheel finishes</a>
+                </li>
               </ul>
             </div>
           </li>
           <li class="nav-item">
-            <div class="dropdown mx-1" id="mode-dropdown">
-              <button class="btn btn-secondary dropdown-toggle show disabled" type="button" data-bs-toggle="dropdown"
+            <div class="dropdown mx-1 mt-1" id="mode-dropdown">
+              <button class="btn btn-secondary dropdown-toggle show" type="button" data-bs-toggle="dropdown"
                 aria-expanded="true">
                 Detection Mode
               </button>
               <ul class="dropdown-menu" data-bs-popper="static">
-                <li><a class="dropdown-item" href="#" data-value="LASER_PHOTOTRANS_DIG">Laser + Phototransistor
-                    Digital</a></li>
-                <li><a class="dropdown-item active" href="#" data-value="LASER_PHOTOTRANS_ADC">Laser + Phototransistor
-                    ADC</a></li>
-                <li><a class="dropdown-item" href="#" data-value="LASER_IR_RECV">IR-Modulated Laser + IR Receiver</a>
+                <li><a class="dropdown-item" href="#" data-value="LASER_PHOTOTRANS_DIG">Digital Beam Detection</a>
                 </li>
-                <li><a class="dropdown-item" href="#" data-value="IR_LED_IR_RECV">IR-Modulated LED + IR Receiver</a>
-                </li>
+                <li><a class="dropdown-item" href="#" data-value="LASER_PHOTOTRANS_ADC">Analog Beam Detection</a></li>
+                <li><a class="dropdown-item" href="#" data-value="LASER_IR_RECV">IR Modulated Beam Detection</a></li>
               </ul>
             </div>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="javascript:void(0)">About</a>
           </li>
         </ul>
       </div>
@@ -148,12 +157,11 @@
   <div class="container-fluid p-3">
     <div class="row">
       <div class="col text-wrap font-monospace" style="font-size: 1vw;">
-        <p id="data">
+        <p id="data" style="font-size: 10px;">
         </p>
       </div>
       <div class="col">
-        <h1 id="display" class="text-danger text-center" style="font-size:15vw">00:00</h1>
-        <h1 id="display-micros"></h1>
+        <h1 id="display" class="text-danger text-center" style="font-size:15vw;">00:00:00</h1>
       </div>
       <div class="col"></div>
     </div>
