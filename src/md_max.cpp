@@ -14,7 +14,7 @@ static MD_MAX72XX::fontType_t narrow_numbers[] PROGMEM = {
     3, 255, 137, 255,  // 56 - '8'
     3, 15,  9,   255,  // 57 - '9'
     2, 102, 102,       // 58 - ':'
-    1, 255                // 59 - ';'
+    1, 255             // 59 - ';'
 };
 static MD_MAX72XX::fontType_t wide_numbers[] PROGMEM = {
     5, 255, 129, 129, 129, 255,  // 48 - '0'
@@ -50,11 +50,15 @@ void display_print(const char *message, uint8_t spacing) {
 void display_time(unsigned long start, unsigned long end) {
   static char buf[64];
   unsigned long dur = end - start;
+  int msecs = dur / 1000;
   int centisecs = dur / 10000;
   int secs = centisecs / 100;
   int mins = secs / 60;
 
-  if (mins > 0) {
+  if (msecs < 100) {
+    set_wide_font(false);
+    sprintf(buf, "%dus", dur);
+  } else if (mins > 0) {
     set_wide_font(false);
     sprintf(buf, "%02d:%02d:%02d", mins % 60, secs % 60, centisecs % 100);
   } else {

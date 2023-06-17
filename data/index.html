@@ -1,6 +1,5 @@
 <!DOCTYPE HTML>
-<html>
-
+<html data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,13 +7,19 @@
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="manifest" href="site.webmanifest">
-  <link href="lib/bootstrap.min.css" rel="stylesheet">
   <title>MGK Lap Timer</title>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js" -->
+  <!-- integrity="sha384-ka7Sk0Gln4gmtz2MlQnikT1wXgYsOg+OMhuP+IlRH9sENBO0LRn5q+8nbTov4+1p" -->
+  <!-- crossorigin="anonymous"></script> -->
+  <!-- <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet"> -->
+  <link href="lib/bootstrap.min.css" rel="stylesheet">
   <script src="lib/bootstrap.bundle.min.js" type="text/javascript"></script>
   <script src="lib/zepto.min.js" type="text/javascript"></script>
+  <script src="https://cdn.jsdelivr.net/npm/zepto@1.2.0/dist/zepto.min.js"></script>
+
   <script type="text/javascript">
     let gateway = `ws://${window.location.hostname}/ws`;
-    let websocket;
+    let websocket, ping_interval, ping_timeout;
     let history = localStorage.getItem("history") || {};
     let start_time = 0, dispinterval;
 
@@ -38,21 +43,35 @@
       websocket.onopen = (e) => {
         $(".alert-success").html("Websocket connection opened!").removeClass("d-none");
         $(".alert-danger").addClass("d-none");
-        $(".dropdown button").removeClass("disabled");
+        $(".dropdown,.form-range").removeClass("disabled");
         setTimeout(() => {
           $(".alert-success").addClass("d-none");
         }, 2000);
+        ping_interval = setInterval(() => {
+          websocket.send('__ping__');
+          ping_timeout = setTimeout(() => {
+            $(".alert-danger").html("Websocket ping timeout").removeClass("d-none");
+            websocket.close();
+          }, 5000);
+        }, 5000);
+
       };
       websocket.onclose = (e) => {
         $(".alert-danger").html("Websocket connection closed").removeClass("d-none");
-        $(".dropdown button").addClass("disabled");
-        setTimeout(init_websocket, 1000);
+        $(".dropdown,.form-range").addClass("disabled");
+        setTimeout(init_websocket, 5000);
+        clearInterval(ping_interval);
       };
       websocket.onerror = (e) => {
         $(".alert-danger").html("Websocket error").removeClass("d-none");
         websocket.close();
       };
       websocket.onmessage = (e) => {
+        if (e.data == "__pong__") {
+          clearTimeout(ping_timeout);
+          console.log("pong");
+          return;
+        }
         let doc = JSON.parse(e.data);
         $("#data").html(`<pre>${JSON.stringify(doc, false, 1).replace(/[\{\}]/g, '')}</pre>`);
         $("#mode-dropdown ul li a.active").removeClass("active");
@@ -60,20 +79,24 @@
         $("#crossings-dropdown ul li a.active").removeClass("active");
         $(`#crossings-dropdown ul li a[data-value='${doc["crossings"]}']`).addClass("active");
         $("#intensity-slider").val(doc["intensity"]);
+        $("#threshold-slider").val(doc["adc_threshold"]);
+        $("#intensity-value").html(doc["intensity"]);
+        $("#threshold-value").html(doc["adc_threshold"]);
 
-        if (doc["start"] != 0 && doc["finish"] == 0 && dispinterval === undefined) {
+        // if (doc["start"] != 0 && doc["finish"] == 0 && dispinterval === undefined) {
+        if (doc["msg"] == "running" && dispinterval === undefined) {
           start_time = (Date.now() * 1000);
           dispinterval = setInterval(() => {
             $("#display").html(format_us(start_time, Date.now() * 1000));
           }, 100);
-        } else if (doc["finish"] != 0) {
+        } else if (doc["msg"] == "finish") {
           if (dispinterval !== undefined) {
             clearInterval(dispinterval);
             dispinterval = undefined;
           }
           $("#display").html(format_us(doc["start"], doc["finish"]));
           $("#display-micros").html(doc["finish"] - doc["start"]);
-        } else if (doc["start"] == 0) {
+        } else if (doc["msg"] == "ready") {
           if (dispinterval !== undefined) {
             clearInterval(dispinterval);
             dispinterval = undefined;
@@ -98,32 +121,44 @@
       });
       $('#intensity-slider').on('change', (e) => {
         let selected_intensity = e.target.value;
+        $("#intensity-value").html(selected_intensity);
         websocket.send(JSON.stringify({ "intensity": selected_intensity }));
+      });
+      $('#threshold-slider').on('change', (e) => {
+        let selected_threshold = e.target.value;
+        $("#threshold-value").html(selected_threshold);
+        websocket.send(JSON.stringify({ "adc_threshold": selected_threshold }));
       });
     });
   </script>
 </head>
 
-<body data-bs-theme="dark">
+<body>
   <div class="alert alert-success alert-dismissible fade show d-none"></div>
   <div class="alert alert-info alert-dismissible fade show d-none"></div>
   <div class="alert alert-danger alert-dismissible show fade">Not Connected</div>
-  <nav class="navbar navbar-expand-sm">
+  <nav class="navbar navbar-expand-xl">
     <div class="container-fluid">
       <a class="navbar-brand" href="/">MGK Lap Timer</a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mynavbar">
         <span class="navbar-toggler-icon"></span>
       </button>
       <div class="collapse navbar-collapse" id="mynavbar">
-        <ul class="navbar-nav ms-auto disabled">
+        <ul class="navbar-nav ms-auto" id="controls">
           <li class="nav-item mx-1">
-            <label class="form-label pb-0 mb-0 text-center" for="intensity-slider">Display Brightness</label>
+            <label class="form-label pb-0 mb-0 text-center" for="threshold-slider">ADC Threshold</label>
+            <label class="form-label pb-0 mb-0 text-info" for="threshold-slider" id="threshold-value"></label>
+            <input type="range" id="threshold-slider" class="form-range pt-0 mt-0" min="0" max="4096" step="128">
+          </li>
+          <li class="nav-item mx-1">
+            <label class="form-label pb-0 mb-0 text-center" for="intensity-slider">Brightness</label>
+            <label class="form-label text-info pb-0 mb-0" for="intensity-slider" id="intensity-value"></label>
             <input type="range" id="intensity-slider" class="form-range pt-0 mt-0" min="0" max="15">
           </li>
           <li class="nav-item">
             <div class="dropdown mx-1 mt-1" id="crossings-dropdown">
               <button class="btn btn-secondary dropdown-toggle show" type="button" data-bs-toggle="dropdown"
-                aria-expanded disabled disabled="true">
+                aria-expanded="true">
                 Wheel Crossings
               </button>
               <ul class="dropdown-menu" data-bs-popper="static">

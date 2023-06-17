@@ -58,6 +58,8 @@ void init_wifi(DNSServer *dns_server) {
     delay(100);
   }
   LOGF("\nLocal IP: %s\n", WiFi.localIP().toString());
+  ArduinoOTA.begin();
+  LOGF("OTA updater started\n");
 #endif
 
   MDNS.begin(MDNS_NAME);
@@ -104,6 +106,7 @@ void ws_event_handler(AsyncWebSocket *server, AsyncWebSocketClient *client,
 
       if (!strcmp(ws_data_buf, "__ping__")) {
         LOGF("Websocket client %s:%u ping\n", server->url(), client->id());
+        client->text("__pong__");
       } else {
         LOGF("Websocket client %s:%u data: %s\n", server->url(), client->id(),
              ws_data_buf);
@@ -114,10 +117,6 @@ void ws_event_handler(AsyncWebSocket *server, AsyncWebSocketClient *client,
     }
     case WS_EVT_ERROR:
       LOGF("WebSocket error %s:%u\n", server->url(), client->id());
-      // LOGF("WebSocket error %s:%u %s2\n", server->url(), client->id(),
-      //      len ? (char *)data : "");
       break;
-    // case WS_EVT_PONG:
-      // break;
   }
 }
