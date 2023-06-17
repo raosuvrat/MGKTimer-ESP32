@@ -64,6 +64,5 @@ void IRAM_ATTR ISR_ir_recv_state_change();
 void IRAM_ATTR ISR_poll_beam();
 void IRAM_ATTR ISR_phototrans_recv_state_change();
 void IRAM_ATTR update_beam_state(bool recv, unsigned long t);
-uint16_t IRAM_ATTR local_adc1_read(int channel);
 
 #endif

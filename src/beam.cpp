@@ -92,19 +92,6 @@ void init_beam(beam_t *beam) {
   reset_beam();
 }
 
-uint16_t IRAM_ATTR local_adc1_read(int channel) {
-  uint16_t adc_value;
-  SENS.sar_meas_start1.sar1_en_pad = (1 << channel);
-  while (SENS.sar_slave_addr1.meas_status != 0)
-    ;  // portYIELD_FROM_ISR();
-  SENS.sar_meas_start1.meas1_start_sar = 0;
-  SENS.sar_meas_start1.meas1_start_sar = 1;
-  while (SENS.sar_meas_start1.meas1_done_sar == 0)
-    ;  // portYIELD_FROM_ISR();
-  adc_value = SENS.sar_meas_start1.meas1_data_sar;
-  return adc_value;
-}
-
 void IRAM_ATTR ISR_poll_beam() {
   portENTER_CRITICAL_ISR(&recv_isr_spinlock);
   bool recv;
