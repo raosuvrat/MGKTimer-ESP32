@@ -10,8 +10,16 @@
 #include "web.h"
 
 #define TOUCH_STRIP_TIMEOUT_US 250000
+#define APP_TASK_CORE 1
+#define APP_TASK_PRI 1
 
-void ws_data_handler(StaticJsonDocument<256> doc);
+#define DEFAULT_MODE LASER_PHOTOTRANS_ADC
+#define DEFAULT_INTENSITY 4
+#define DEFAULT_WHEEL_CROSSINGS 3
+#define DEFAULT_ADC_THRESHOLD 512
+#define DEFAULT_BEAM_CROSS_LOCKOUT_MS 0
+
+void ws_command_handler(StaticJsonDocument<512> doc);
 void update_clients(const char *msg = NULL);
 void IRAM_ATTR ISR_touch_strip();
 void app_task(void *pvParameters);
@@ -26,9 +34,38 @@ static MD_Parola md_max =
 static DNSServer dns_server;
 static AsyncWebServer server(HTTP_PORT);
 static AsyncWebSocket socket(WEBSOCKET_NAME);
-static StaticJsonDocument<1024> doc;
-static char buf[1024];
+static StaticJsonDocument<1024> txdoc;
+static char txbuf[1024];
 static volatile bool touch_strip_touched = false;
+
+void init_pins() {
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  pinMode(LASER_PIN, OUTPUT);
+  pinMode(IR_RECV_PIN, INPUT);
+  pinMode(TOUCH_STRIP_PIN, INPUT);
+
+  pinMode(PHOTOTRANS_100000_OHM_LOAD_PIN, OUTPUT);
+  digitalWrite(PHOTOTRANS_100000_OHM_LOAD_PIN, LOW);
+  pinMode(PHOTOTRANS_PIN, INPUT_PULLDOWN);
+  pinMode(PHOTOTRANS_2_PIN, INPUT_PULLUP);
+
+  touchAttachInterrupt(TOUCH_STRIP_PIN, ISR_touch_strip, 40);
+}
+
+void init_prefs() {
+  prefs.begin("MGKTimer", false);
+
+  intensity = prefs.getUInt("intensity", DEFAULT_INTENSITY);
+  beam.mode = static_cast<detection_mode_t>(
+      prefs.getUInt("mode", static_cast<int>(DEFAULT_MODE)));
+
+  beam.crossings = prefs.getUInt("crossings", DEFAULT_WHEEL_CROSSINGS);
+  beam.adc_threshold = prefs.getUInt("adc_threshold", DEFAULT_ADC_THRESHOLD);
+  beam.beam_cross_lockout_ms =
+      prefs.getUInt("beam_cross_lockout_ms", DEFAULT_BEAM_CROSS_LOCKOUT_MS);
+  set_display_intensity(intensity);
+}
+}
 
 void setup() {
 #if DEBUG == 1
@@ -36,49 +73,31 @@ void setup() {
   LOGF("Serial debugging enabled\n");
 #endif
 
-  pinMode(STATUS_LED_PIN, OUTPUT);
-  pinMode(PHOTOTRANS_100000_OHM_LOAD_PIN, INPUT);
-  // digitalWrite(PHOTOTRANS_100000_OHM_LOAD_PIN, LOW);
-  pinMode(LASER_PIN, OUTPUT);
-  pinMode(LASER_2_PIN, OUTPUT);
-  pinMode(IR_RECV_PIN, INPUT);
-  pinMode(PHOTOTRANS_PIN, INPUT_PULLUP);
-  pinMode(PHOTOTRANS_2_PIN, INPUT_PULLUP);
-  pinMode(TOUCH_STRIP_PIN, INPUT);
-
-  touchAttachInterrupt(TOUCH_STRIP_PIN, ISR_touch_strip, 40);
-  analogWrite(LASER_2_PIN, 100);
-
   init_fs();
   init_wifi(&dns_server);
-  init_webserver(&server, &socket, ws_data_handler);
+  init_webserver(&server, &socket, ws_command_handler);
   init_display(&md_max);
-
-  prefs.begin("MGKTimer", false);
-  // prefs.putUInt("mode", LASER_PHOTOTRANS_ADC);
-  intensity = prefs.getUInt("intensity", 4);
-  beam.mode = static_cast<detection_mode_t>(prefs.getUInt("mode"));
-  beam.crossings = prefs.getUInt("crossings", 4);
-  beam.adc_threshold = prefs.getUInt("adc_threshold", 512);
-  set_display_intensity(intensity);
+  init_pins();
+  init_prefs();
 }
 
 void app_task(void *pvParameters) {
   display_print("Ready");
+  update_clients("Ready");
 
   while (true) {
     reset_beam();
     while (!beam.counter) {
-      update_clients("ready");
+      update_clients("Ready");
       vTaskDelay(100);
     }
     while (!beam.finish_time) {
-      update_clients("running");
+      update_clients("Running");
       display_time(beam.start_time, micros());
       vTaskDelay(100);
     }
     display_time(beam.start_time, beam.finish_time);
-    update_clients("finish");
+    update_clients("Finish");
   }
 }
 
@@ -88,7 +107,7 @@ bool check_beam_stability() {
   delay(500);
   char buf[33];
   for (int i = 0; i < 32; ++i) {
-    update_clients("Checking beam stability");
+    update_clients("Checking");
     check_beam_stable &= beam.state == RECEIVED && !beam.counter;
     buf[i] = ';';
     buf[i + 1] = '\0';
@@ -99,16 +118,14 @@ bool check_beam_stability() {
 }
 
 void loop() {
-#if WIFI_SOFT_AP == 0
   ArduinoOTA.handle();
-#endif
   handle_touch();
   if (!app_task_handle) {
     if (check_beam_stability()) {
       display_print("Locked");
       delay(1000);
-      xTaskCreatePinnedToCore(app_task, "app_task", 10000, NULL, 10,
-                              &app_task_handle, 0);
+      xTaskCreatePinnedToCore(app_task, "app_task", 100000, NULL, APP_TASK_PRI,
+                              &app_task_handle, APP_TASK_CORE);
     } else {
       display_print("No lock");
     }
@@ -116,33 +133,43 @@ void loop() {
 }
 
 void update_clients(const char *msg) {
+  char msg_l[strlen(msg) + 1] = {0};
+  if (msg) {
+    for (int i = 0; i < strlen(msg); ++i) msg_l[i] = tolower(msg[i]);
+  }
+
   if (socket.availableForWriteAll()) {
-    doc["msg"] = msg ? msg : "";
-    doc["mode"] = detection_mode_to_str(beam.mode);
-    doc["state"] = beam.state == RECEIVED      ? "RECEIVED"
-                   : beam.state == INTERRUPTED ? "INTERRUPTED"
-                                               : "NOT_ESTABLISHED";
-    doc["counter"] = beam.counter;
-    doc["start"] = beam.start_time;
-    doc["finish"] = beam.finish_time;
-    doc["change"] = beam.change_time;
-    doc["crossings"] = beam.crossings;
-    doc["time"] = micros();
-    doc["adc_value"] = beam.adc_value;
-    doc["adc_threshold"] = beam.adc_threshold;
-    doc["samples"] = beam.samples;
-    doc["sample_rate"] = beam.sample_rate;
-    doc["intensity"] = intensity;
-    // doc["touchread"] = touchRead(TOUCH_STRIP_PIN);
-    // doc["free_heap"] = ESP.getFreeHeap();
-    serializeJson(doc, buf);
-    socket.textAll(buf);
+    txdoc["msg"] = msg ? msg_l : "";
+    txdoc["mode"] = detection_mode_to_str(beam.mode);
+    txdoc["state"] = beam.state == RECEIVED      ? "RECEIVED"
+                     : beam.state == INTERRUPTED ? "INTERRUPTED"
+                                                 : "NOT_ESTABLISHED";
+    txdoc["counter"] = beam.counter;
+    txdoc["start"] = beam.start_time;
+    txdoc["finish"] = beam.finish_time;
+    txdoc["change"] = beam.change_time;
+    txdoc["crossings"] = beam.crossings;
+    txdoc["beam_cross_lockout_ms"] = beam.beam_cross_lockout_ms;
+    txdoc["time"] = micros();
+    txdoc["adc_value"] = beam.adc_value;
+    txdoc["adc_threshold"] = beam.adc_threshold;
+    txdoc["adc_sample_time"] = beam.adc_sample_time;
+    txdoc["samples"] = beam.samples;
+    txdoc["sample_rate"] = beam.sample_rate;
+    txdoc["intensity"] = intensity;
+    txdoc["touchread"] = touchRead(TOUCH_STRIP_PIN);
+    txdoc["free_heap"] = ESP.getFreeHeap();
+    txdoc["txdoc_size"] = 1024;
+    txdoc["txdoc_size"] = txdoc.memoryUsage();
+
+    serializeJson(txdoc, txbuf);
+    socket.textAll(txbuf);
   }
 }
 
 void IRAM_ATTR ISR_touch_strip() { touch_strip_touched = true; }
 
-void ws_data_handler(StaticJsonDocument<256> doc) {
+void ws_command_handler(StaticJsonDocument<512> doc) {
   for (JsonPair kv : doc.as<JsonObject>()) {
     if (kv.key() == "mode") {
       beam.mode = str_to_detection_mode(kv.value().as<const char *>());
@@ -164,6 +191,10 @@ void ws_data_handler(StaticJsonDocument<256> doc) {
       set_display_intensity(intensity);
       prefs.putUInt("intensity", intensity);
       LOGF("Display intensity updated to %d\n", intensity);
+    } else if (kv.key() == "beam_cross_lockout_ms") {
+      beam.beam_cross_lockout_ms = kv.value().as<int>();
+      prefs.putUInt("beam_cross_lockout_us", beam.beam_cross_lockout_ms);
+      LOGF("Beam cross lockout updated to %d\n", beam.beam_cross_lockout_ms);
     }
   }
 }

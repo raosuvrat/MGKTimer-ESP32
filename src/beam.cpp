@@ -76,11 +76,7 @@ void init_beam(beam_t *beam) {
     case LASER_PHOTOTRANS_ADC:
       digitalWrite(LASER_PIN, HIGH);
       analogRead(PHOTOTRANS_PIN);
-      adc1_config_width(ADC_WIDTH_BIT_12);
-      adc1_config_channel_atten(PHOTOTRANS_ADC1_CHANNEL, ADC_ATTEN_DB_11);
-
       timerAlarmWrite(poll_beam_timer, POLL_BEAM_TIMER_INTERVAL_ADC, true);
-
       LOGF("Laser phototransistor adc recv configured\n");
       break;
   }
@@ -91,7 +87,6 @@ void init_beam(beam_t *beam) {
 
   reset_beam();
 }
-
 void IRAM_ATTR ISR_poll_beam() {
   portENTER_CRITICAL_ISR(&recv_isr_spinlock);
   bool recv;
@@ -99,8 +94,8 @@ void IRAM_ATTR ISR_poll_beam() {
   switch (beam_ptr->mode) {
     case LASER_PHOTOTRANS_ADC:
       beam_ptr->adc_value = analogRead(PHOTOTRANS_PIN);
-      beam_ptr->adc_sample_time = micros() - t;
       // beam_ptr->adc_value = local_adc1_read(PHOTOTRANS_ADC1_CHANNEL);
+      beam_ptr->adc_sample_time = micros() - t;
       recv = beam_ptr->adc_value > beam_ptr->adc_threshold;
       update_beam_state(recv, t);
       break;
@@ -125,10 +120,18 @@ void IRAM_ATTR update_beam_state(bool recv, unsigned long t) {
     if (!recv) return;
   }
 
+  beam_ptr->samples++;
+  beam_ptr->sample_time = t - beam_ptr->change_time;
+  beam_ptr->sample_rate = (beam_ptr->sample_rate * (beam_ptr->samples - 1) +
+                           (1000000.0 / beam_ptr->sample_time)) /
+                          beam_ptr->samples;
+  beam_ptr->change_time = t;
+
   if (beam_ptr->state == RECEIVED && !recv && !beam_ptr->counter) {
     beam_ptr->start_time = t;
   } else if (beam_ptr->state == INTERRUPTED && recv) {
     beam_ptr->counter++;
+    beam_ptr->state = LOCKOUT;
   }
 
   if (beam_ptr->counter && !(beam_ptr->counter % beam_ptr->crossings)) {
@@ -136,13 +139,6 @@ void IRAM_ATTR update_beam_state(bool recv, unsigned long t) {
   }
 
   beam_ptr->state = recv ? RECEIVED : INTERRUPTED;
-  beam_ptr->samples++;
-  unsigned long sample_time = t - beam_ptr->change_time;
-  beam_ptr->sample_rate = (beam_ptr->sample_rate * (beam_ptr->samples - 1) +
-                           (1000000.0 / sample_time)) /
-                          beam_ptr->samples;
-  beam_ptr->sample_time = sample_time;
-  beam_ptr->change_time = t;
 
   digitalWrite(STATUS_LED_PIN, recv);
 }
@@ -185,6 +181,19 @@ detection_mode_t str_to_detection_mode(const char *str) {
     return LASER_PHOTOTRANS_ADC;
   }
   return INVALID;
+}
+
+uint16_t IRAM_ATTR local_adc1_read(int channel) {
+  uint16_t adc_value;
+  SENS.sar_meas_start1.sar1_en_pad = (1 << channel);
+  while (SENS.sar_slave_addr1.meas_status != 0)
+    ;
+  SENS.sar_meas_start1.meas1_start_sar = 0;
+  SENS.sar_meas_start1.meas1_start_sar = 1;
+  while (SENS.sar_meas_start1.meas1_done_sar == 0)
+    ;
+  adc_value = SENS.sar_meas_start1.meas1_data_sar;
+  return adc_value;
 }
 
 const char *detection_mode_to_str(detection_mode_t mode) {

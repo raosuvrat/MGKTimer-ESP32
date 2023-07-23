@@ -31,7 +31,7 @@ void init_fs();
 
 void init_wifi(DNSServer *dns_server);
 void init_webserver(AsyncWebServer *server, AsyncWebSocket *socket,
-                    void (*cb)(StaticJsonDocument<256> doc));
+                    void (*cb)(StaticJsonDocument<512> doc));
 void ws_event_handler(AsyncWebSocket *server, AsyncWebSocketClient *client,
                       AwsEventType type, void *arg, uint8_t *data, size_t len);
 

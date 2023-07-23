@@ -20,10 +20,8 @@
 #define POLL_BEAM_TIMER 1
 #define POLL_BEAM_TIMER_PRESCALER 80
 #define POLL_BEAM_TIMER_INTERVAL_DIG 100
-#define POLL_BEAM_TIMER_INTERVAL_ADC 100
+#define POLL_BEAM_TIMER_INTERVAL_ADC 500
 #define POLL_BEAM_TIMER_INTERVAL_IR 10000
-
-#define DEFAULT_ADC_THRESHOLD 1024
 
 enum detection_mode_t {
   LASER_PHOTOTRANS_DIG,
@@ -36,6 +34,7 @@ enum beam_state_t {
   NOT_ESTABLISHED,
   RECEIVED,
   INTERRUPTED,
+  LOCKOUT,
 };
 
 struct beam_t {
@@ -49,16 +48,17 @@ struct beam_t {
   volatile double sample_rate = 0;  // total time to sample beam state
   unsigned int crossings = 4;
   volatile beam_state_t state = NOT_ESTABLISHED;
-  unsigned int adc_threshold = DEFAULT_ADC_THRESHOLD;
+  unsigned int adc_threshold = 0;
   unsigned long adc_sample_time = 0;  // time specifically for adc read
   volatile unsigned int adc_value = 0;
+  unsigned long beam_cross_lockout_ms = 0;
 };
 
 void init_beam(beam_t *beam);
 void reset_beam();
 detection_mode_t str_to_detection_mode(const char *str);
 const char *detection_mode_to_str(detection_mode_t mode);
-
+uint16_t IRAM_ATTR local_adc1_read(int channel);
 void IRAM_ATTR ISR_ir_pulse_train_gen();
 void IRAM_ATTR ISR_ir_recv_state_change();
 void IRAM_ATTR ISR_poll_beam();
